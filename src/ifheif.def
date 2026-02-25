@@ -4,3 +4,8 @@ EXPORTS
 	GetPictureInfo
 	GetPicture
 	GetPreview
+	GetPluginInfoW
+	IsSupportedW
+	GetPictureInfoW
+	GetPictureW
+	GetPreviewW
