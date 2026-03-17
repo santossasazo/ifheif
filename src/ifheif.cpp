@@ -280,7 +280,8 @@ int load_heif(const void* buf, long len, PictureInfo* info, HLOCAL* data) {
                 info->height     = heif_image_handle_get_height(handle);
                 info->x_density  = 0;
                 info->y_density  = 0;
-                info->colorDepth = 32;
+                // ★変更点1：Vieasが読めるように 32 から 24 に変更
+                info->colorDepth = 24; 
                 info->hInfo      = NULL;
 
                 if(data) {
@@ -288,16 +289,25 @@ int load_heif(const void* buf, long len, PictureInfo* info, HLOCAL* data) {
                     if(!heif_decode_image(handle, &img, heif_colorspace_RGB, heif_chroma_interleaved_RGBA, NULL).code) {
                         int stride;
                         const uint8_t* b_dat = reinterpret_cast<const uint8_t*>(heif_image_get_plane_readonly(img, heif_channel_interleaved, &stride));
-                        *data = LocalAlloc(LMEM_MOVEABLE, info->width * info->height * (info->colorDepth / 8));
+                        
+                        // ★変更点2：24bit(RGB)用に、1行のバイト数を4の倍数に切り上げる（Windows DIBの仕様）
+                        int dest_stride = (info->width * 3 + 3) & ~3;
+                        
+                        // ★変更点3：確保するメモリサイズを 24bit 用（dest_stride * height）に変更
+                        *data = LocalAlloc(LMEM_MOVEABLE, dest_stride * info->height);
                         if(*data) {
-                            Pixel_BGRA* dat = reinterpret_cast<Pixel_BGRA*>(LocalLock(*data));
+                            uint8_t* dat = reinterpret_cast<uint8_t*>(LocalLock(*data));
                             for(int i = 0; i < info->height; i++) {
+                                // 書き込み先（Vieasへ渡すデータ）の1行の先頭アドレス
+                                uint8_t* dest_row = &dat[dest_stride * i];
+                                // 読み込み元（libheifからのデータ）の1行の先頭アドレス
                                 const Pixel_RGBA* img_dat = reinterpret_cast<const Pixel_RGBA*>(&b_dat[(stride * (info->height - i - 1))]);
+                                
                                 for(int j = 0; j < info->width; j++) {
-                                    dat[info->width * i + j].b = img_dat[j].b;
-                                    dat[info->width * i + j].g = img_dat[j].g;
-                                    dat[info->width * i + j].r = img_dat[j].r;
-                                    dat[info->width * i + j].a = img_dat[j].a;
+                                    // ★変更点4：a（アルファ）は捨てて、b, g, r の3バイトだけをコピーする
+                                    dest_row[j * 3 + 0] = img_dat[j].b;
+                                    dest_row[j * 3 + 1] = img_dat[j].g;
+                                    dest_row[j * 3 + 2] = img_dat[j].r;
                                 }
                             }
                             LocalUnlock(*data);
